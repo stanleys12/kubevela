@@ -1175,6 +1175,33 @@ var _ = Describe("CUEGenerator", func() {
 			Expect(cue).To(ContainSubstring("strings"))
 		})
 
+		It("should import the full path of nested StdlibCall functions", func() {
+			name := defkit.String("name")
+			digest := defkit.StdlibCall("encoding/hex", "Encode", defkit.StdlibCall("crypto/md5", "Sum", name))
+			comp := defkit.NewComponent("test").
+				Params(name).
+				Workload("v1", "ConfigMap").
+				Template(func(tpl *defkit.Template) {
+					tpl.Output(
+						defkit.NewResource("v1", "ConfigMap").
+							Set("metadata.name", defkit.Interpolation(
+								defkit.StdlibCall("strings", "SliceRunes", name, defkit.Lit(0), defkit.Lit(54)),
+								defkit.Lit("-"),
+								defkit.StdlibCall("strings", "SliceRunes", digest, defkit.Lit(0), defkit.Lit(8)),
+							)),
+					)
+				})
+
+			cue := gen.GenerateFullDefinition(comp)
+
+			Expect(cue).To(ContainSubstring(`"crypto/md5"`))
+			Expect(cue).To(ContainSubstring(`"encoding/hex"`))
+			Expect(cue).To(ContainSubstring(`"strings"`))
+			Expect(cue).To(ContainSubstring(
+				`name: "\(strings.SliceRunes(parameter.name, 0, 54))-\(strings.SliceRunes(hex.Encode(md5.Sum(parameter.name)), 0, 8))"`))
+			Expect(cuecontext.New().CompileString(cue).Err()).NotTo(HaveOccurred())
+		})
+
 		It("should detect strings import from StringParam.MinLen", func() {
 			hostname := defkit.String("hostname").MinLen(1)
 			comp := defkit.NewComponent("test").

@@ -252,6 +252,43 @@ var _ = Describe("Expressions", func() {
 			Expect(fn.Args()[0]).To(Equal(list1))
 			Expect(fn.Args()[1]).To(Equal(list2))
 		})
+
+		It("should create StdlibCall with the qualifier of a slash-separated import path", func() {
+			str := defkit.String("name")
+			fn := defkit.StdlibCall("crypto/md5", "Sum", str)
+			Expect(fn.Package()).To(Equal("md5"))
+			Expect(fn.Function()).To(Equal("Sum"))
+			Expect(fn.Args()).To(Equal([]defkit.Value{str}))
+			Expect(fn.RequiredImports()).To(Equal([]string{"crypto/md5"}))
+		})
+
+		It("should create Md5Sum and HexEncode on top of StdlibCall", func() {
+			str := defkit.String("name")
+			sum := defkit.Md5Sum(str)
+			Expect(sum.Package()).To(Equal("md5"))
+			Expect(sum.RequiredImports()).To(Equal([]string{"crypto/md5"}))
+			enc := defkit.HexEncode(sum)
+			Expect(enc.Package()).To(Equal("hex"))
+			Expect(enc.RequiredImports()).To(Equal([]string{"encoding/hex"}))
+			Expect(enc.Args()).To(Equal([]defkit.Value{sum}))
+		})
+
+		It("should keep the import of the existing wrappers", func() {
+			Expect(defkit.StringsToLower(defkit.String("name")).RequiredImports()).To(Equal([]string{"strings"}))
+		})
+
+		DescribeTable("should panic on a malformed StdlibCall",
+			func(importPath, fn string) {
+				Expect(func() { defkit.StdlibCall(importPath, fn) }).To(Panic())
+			},
+			Entry("empty import path", "", "Sum"),
+			Entry("quoted import path", `"strings"`, "ToLower"),
+			Entry("trailing slash", "crypto/", "Sum"),
+			Entry("module path", "example.com/foo", "Bar"),
+			Entry("empty function", "strings", ""),
+			Entry("unexported function", "strings", "toLower"),
+			Entry("qualified function", "strings", "strings.ToLower"),
+		)
 	})
 
 	Context("ArrayElement", func() {

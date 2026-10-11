@@ -16,6 +16,12 @@ limitations under the License.
 
 package defkit
 
+import (
+	"fmt"
+	"path"
+	"regexp"
+)
+
 // Literal represents a literal value in an expression.
 type Literal struct {
 	val any
@@ -367,9 +373,10 @@ func (c *MapHasKeyCondition) Key() string { return c.key }
 
 // CUEFunc represents a call to a CUE standard library function.
 type CUEFunc struct {
-	pkg  string // e.g., "strconv", "strings", "list"
-	fn   string // e.g., "FormatInt", "ToLower"
-	args []Value
+	pkg        string // e.g., "strconv", "strings", "md5"
+	importPath string // e.g., "crypto/md5"; empty means pkg
+	fn         string // e.g., "FormatInt", "ToLower"
+	args       []Value
 }
 
 func (c *CUEFunc) expr()  {}
@@ -377,6 +384,9 @@ func (c *CUEFunc) value() {}
 
 // RequiredImports returns the CUE imports required by this function call.
 func (c *CUEFunc) RequiredImports() []string {
+	if c.importPath != "" {
+		return []string{c.importPath}
+	}
 	if c.pkg != "" {
 		return []string{c.pkg}
 	}
@@ -391,6 +401,36 @@ func (c *CUEFunc) Function() string { return c.fn }
 
 // Args returns the function arguments.
 func (c *CUEFunc) Args() []Value { return c.args }
+
+var (
+	stdlibImportPathRegex = regexp.MustCompile(`^[a-z][a-z0-9]*(/[a-z][a-z0-9]*)*$`)
+	stdlibFuncNameRegex   = regexp.MustCompile(`^[A-Z][A-Za-z0-9_]*$`)
+)
+
+// StdlibCall calls a function of any CUE standard library package. The import
+// path is imported as is while the call uses its last segment as qualifier, so
+// StdlibCall("crypto/md5", "Sum", v) renders as md5.Sum(v).
+// It panics if importPath or fn is malformed.
+func StdlibCall(importPath, fn string, args ...Value) *CUEFunc {
+	if !stdlibImportPathRegex.MatchString(importPath) {
+		panic(fmt.Sprintf("defkit: invalid CUE standard library import path %q", importPath))
+	}
+	if !stdlibFuncNameRegex.MatchString(fn) {
+		panic(fmt.Sprintf("defkit: invalid CUE standard library function name %q", fn))
+	}
+	return &CUEFunc{
+		pkg:        path.Base(importPath),
+		importPath: importPath,
+		fn:         fn,
+		args:       args,
+	}
+}
+
+// Md5Sum creates a md5.Sum(v) expression.
+func Md5Sum(v Value) *CUEFunc { return StdlibCall("crypto/md5", "Sum", v) }
+
+// HexEncode creates a hex.Encode(v) expression.
+func HexEncode(v Value) *CUEFunc { return StdlibCall("encoding/hex", "Encode", v) }
 
 // StrconvFormatInt creates a strconv.FormatInt(v, base) expression.
 // In CUE: strconv.FormatInt(v, 10)
